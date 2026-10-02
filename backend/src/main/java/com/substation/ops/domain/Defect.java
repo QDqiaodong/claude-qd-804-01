@@ -14,7 +14,9 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 /**
- * 缺陷：由巡检/日常监视发现，走「登记 → 派工 → 处理 → 验收」四步闭环。
+ * 缺陷：由巡检/日常监视发现，走「登记 → 派工 → 处理 → 待验收 → 验收闭环」五步。
+ * 处理人只能报完工（提交处理结果进入待验收），不能替自己验收；
+ * 验收由另一名值班员独立填写结论：通过才闭环，驳回则退回处理中返工。
  * 超期未消缺会连锁阻止该间隔的工作票终结。
  */
 @Getter
@@ -29,10 +31,17 @@ public class Defect {
     public static final String LEVEL_MAJOR = "MAJOR";
     public static final String LEVEL_MINOR = "MINOR";
 
-    /** 消缺闭环状态：登记 → 派工 → 处理 → 验收（验收即闭环） */
+    /**
+     * 消缺闭环状态：登记 → 派工 → 处理 → 待验收 → 已验收。
+     * 注意：处理（PROCESSING）与验收（ACCEPTED）之间必须经过独立的待验收环节，
+     * 待验收缺陷仍算未闭环，不能从超期排行消失，也不能放开关联工作票终结。
+     */
     public static final String STATUS_REGISTERED = "REGISTERED";
     public static final String STATUS_DISPATCHED = "DISPATCHED";
     public static final String STATUS_PROCESSING = "PROCESSING";
+    /** 处理人已提交处理结果，等待另一名值班员验收 */
+    public static final String STATUS_PENDING_ACCEPTANCE = "PENDING_ACCEPTANCE";
+    /** 验收通过，闭环（终态） */
     public static final String STATUS_ACCEPTED = "ACCEPTED";
 
     /** 各等级对应的标准消缺期限（天） */
@@ -74,14 +83,34 @@ public class Defect {
     @Column(name = "due_date")
     private LocalDate dueDate;
 
-    /** 消缺负责人 */
+    /** 消缺负责人（处理人） */
     @Column(name = "owner", length = 32)
     private String owner;
 
     @Column(name = "status", length = 24)
     private String status;
 
-    /** 闭环（验收）时间 */
+    /** 最近一次提交的处理结果（驳回返工时仍保留，便于验收人复核） */
+    @Column(name = "process_result", length = 512)
+    private String processResult;
+
+    /** 最近一次处理结果提交人（必须是消缺负责人） */
+    @Column(name = "processed_by", length = 32)
+    private String processedBy;
+
+    /** 最近一次处理结果提交时间 */
+    @Column(name = "processed_time")
+    private LocalDateTime processedTime;
+
+    /** 累计返工次数（每次验收驳回 +1） */
+    @Column(name = "rework_count")
+    private Integer reworkCount;
+
+    /** 验收通过人（验收闭环的验收人，须与处理人不同） */
+    @Column(name = "accepted_by", length = 32)
+    private String acceptedBy;
+
+    /** 闭环（验收通过）时间 */
     @Column(name = "closed_time")
     private LocalDateTime closedTime;
 }

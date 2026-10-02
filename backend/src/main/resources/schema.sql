@@ -18,6 +18,7 @@ DROP TABLE IF EXISTS `work_ticket_event`;
 DROP TABLE IF EXISTS `operation_step`;
 DROP TABLE IF EXISTS `operation_ticket`;
 DROP TABLE IF EXISTS `work_ticket`;
+DROP TABLE IF EXISTS `defect_acceptance`;
 DROP TABLE IF EXISTS `defect`;
 DROP TABLE IF EXISTS `inspection_record`;
 DROP TABLE IF EXISTS `inspection_plan`;
@@ -117,15 +118,37 @@ CREATE TABLE `defect` (
     `found_time`   DATETIME     NOT NULL COMMENT '发现时间',
     `reporter`     VARCHAR(32)  DEFAULT NULL COMMENT '发现人',
     `due_date`     DATE         NOT NULL COMMENT '限期消缺日期',
-    `owner`        VARCHAR(32)  DEFAULT NULL COMMENT '消缺负责人',
-    `status`       VARCHAR(24)  NOT NULL COMMENT '闭环状态：REGISTERED/DISPATCHED/PROCESSING/ACCEPTED',
-    `closed_time`  DATETIME     DEFAULT NULL COMMENT '闭环（验收）时间',
+    `owner`        VARCHAR(32)  DEFAULT NULL COMMENT '消缺负责人（处理人）',
+    `status`       VARCHAR(24)  NOT NULL COMMENT '闭环状态：REGISTERED/DISPATCHED/PROCESSING/PENDING_ACCEPTANCE/ACCEPTED',
+    `process_result` VARCHAR(512) DEFAULT NULL COMMENT '最近一次提交的处理结果（驳回返工也保留）',
+    `processed_by` VARCHAR(32)  DEFAULT NULL COMMENT '最近一次处理结果提交人（消缺负责人）',
+    `processed_time` DATETIME   DEFAULT NULL COMMENT '最近一次处理结果提交时间',
+    `rework_count` INT          NOT NULL DEFAULT 0 COMMENT '累计返工（验收驳回）次数',
+    `accepted_by`  VARCHAR(32)  DEFAULT NULL COMMENT '验收通过人（须不同于处理人）',
+    `closed_time`  DATETIME     DEFAULT NULL COMMENT '闭环（验收通过）时间',
     PRIMARY KEY (`id`),
     KEY `idx_defect_bay` (`bay_id`),
     KEY `idx_defect_due` (`due_date`),
     KEY `idx_defect_status` (`status`),
     UNIQUE KEY `uk_defect_no` (`defect_no`)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT ='缺陷';
+
+-- ---------------------------- 6.1 缺陷处理/验收记录（只增不改，驳回返工全程留痕） ----------------------------
+CREATE TABLE `defect_acceptance` (
+    `id`             BIGINT       NOT NULL AUTO_INCREMENT,
+    `defect_id`      BIGINT       NOT NULL COMMENT '缺陷单',
+    `round_no`       INT          NOT NULL COMMENT '处理/验收轮次（首次为1，驳回返工后重新提交+1）',
+    `processed_by`   VARCHAR(32)  NOT NULL COMMENT '本轮处理人（消缺负责人）',
+    `process_result` VARCHAR(512) NOT NULL COMMENT '本轮处理结果',
+    `submitted_time` DATETIME     NOT NULL COMMENT '处理结果提交时间（进入待验收）',
+    `accepted_by`    VARCHAR(32)  DEFAULT NULL COMMENT '验收人（结论未填写时为空）',
+    `result`         VARCHAR(16)  DEFAULT NULL COMMENT '验收结论：PASS通过/REJECTED驳回；待验收为空',
+    `accept_opinion` VARCHAR(512) DEFAULT NULL COMMENT '驳回原因（驳回必填）/验收意见',
+    `accepted_time`  DATETIME     DEFAULT NULL COMMENT '验收时间',
+    PRIMARY KEY (`id`),
+    KEY `idx_acc_defect` (`defect_id`),
+    KEY `idx_acc_open` (`defect_id`, `result`)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT ='缺陷处理验收记录';
 
 -- ---------------------------- 7. 工作票 ----------------------------
 CREATE TABLE `work_ticket` (
@@ -320,20 +343,34 @@ INSERT INTO `inspection_record` (`id`, `plan_id`, `bay_id`, `check_time`, `inspe
     (9,  2, 2, CONCAT(DATE_SUB(CURDATE(), INTERVAL 1 DAY), ' 16:20:00'), '陈国栋', 'NORMAL', 8.00,  35.60, '检修间隔，主要核对安措'),
     (10, 5, 3, CONCAT(CURDATE(), ' 15:05:00'),                         '李雪', 'NORMAL',   69.20, 55.40, NULL);
 
--- 6. 缺陷 12 条（含超期未消缺）
-INSERT INTO `defect` (`id`, `bay_id`, `equipment_id`, `defect_no`, `title`, `description`, `level`, `found_time`, `reporter`, `due_date`, `owner`, `status`, `closed_time`) VALUES
-    (1,  1,  3,  'CD-QX-001', '1011隔离开关触头过热',   '红外测温 96.2℃，超规程允许值，需打磨触头并处理氧化层', 'URGENT', CONCAT(DATE_SUB(CURDATE(), INTERVAL 5 DAY), ' 23:40:00'), '马超', DATE_SUB(CURDATE(), INTERVAL 3 DAY), NULL,  'REGISTERED', NULL),
-    (2,  1,  2,  'CD-QX-002', '101断路器SF6压力偏低',   '密度继电器指示 0.42MPa，接近报警值 0.40MPa',           'MAJOR',  CONCAT(DATE_SUB(CURDATE(), INTERVAL 12 DAY), ' 09:05:00'), '张伟', DATE_SUB(CURDATE(), INTERVAL 5 DAY), '李强', 'DISPATCHED', NULL),
-    (3,  3,  9,  'CD-QX-003', '311电流互感器油位异常',  '巡视发现油位低于下限，疑似存在渗漏',                    'MAJOR',  CONCAT(DATE_SUB(CURDATE(), INTERVAL 8 DAY), ' 10:05:00'), '李雪', DATE_SUB(CURDATE(), INTERVAL 1 DAY), '王芳', 'PROCESSING', NULL),
-    (4,  5,  10, 'CD-QX-004', '电容器组外壳渗油',       '电容器外壳底部出现油迹，暂不影响运行',                  'MINOR',  CONCAT(DATE_SUB(CURDATE(), INTERVAL 4 DAY), ' 14:35:00'), '张伟', DATE_ADD(CURDATE(), INTERVAL 4 DAY), NULL,  'REGISTERED', NULL),
-    (5,  2,  6,  'CD-QX-005', '2号主变冷却器风扇异响',  '第 3 组冷却器风扇轴承异响，运行中噪声明显',            'URGENT', CONCAT(DATE_SUB(CURDATE(), INTERVAL 9 DAY), ' 20:10:00'), '赵刚', DATE_SUB(CURDATE(), INTERVAL 7 DAY), '赵刚', 'PROCESSING', NULL),
-    (6,  7,  12, 'HX-QX-006', '主变油面温度计偏高',     '上层油温最高 78℃，冷却系统未见异常，需校核表计',       'MAJOR',  CONCAT(CURDATE(), ' 09:40:00'),                          '孙磊', DATE_ADD(CURDATE(), INTERVAL 2 DAY), '孙磊', 'DISPATCHED', NULL),
-    (7,  8,  13, 'HX-QX-007', '311断路器机构箱受潮',    '机构箱内部凝露，已放干燥剂',                           'MINOR',  CONCAT(DATE_SUB(CURDATE(), INTERVAL 2 DAY), ' 11:10:00'), '周涛', DATE_ADD(CURDATE(), INTERVAL 15 DAY), NULL, 'REGISTERED', NULL),
-    (8,  9,  14, 'HX-QX-008', '321断路器分合闸指示失灵','指示灯不亮，机械位置指示滞后',                          'URGENT', CONCAT(DATE_SUB(CURDATE(), INTERVAL 3 DAY), ' 15:20:00'), '周涛', DATE_SUB(CURDATE(), INTERVAL 2 DAY), '周涛', 'DISPATCHED', NULL),
-    (9,  11, NULL,'BL-QX-009', '主变本体法兰渗漏油',    '本体法兰处有油迹，暂未形成滴油',                        'MAJOR',  CONCAT(DATE_SUB(CURDATE(), INTERVAL 1 DAY), ' 16:45:00'), '吴斌', DATE_ADD(CURDATE(), INTERVAL 6 DAY), NULL,  'REGISTERED', NULL),
-    (10, 4,  NULL,'CD-QX-010', '35kV避雷器计数器破损',  '外绝缘完好，计数器玻璃破碎',                            'MINOR',  CONCAT(DATE_SUB(CURDATE(), INTERVAL 20 DAY), ' 09:30:00'), '李雪', DATE_SUB(CURDATE(), INTERVAL 6 DAY), '郑楠', 'ACCEPTED', CONCAT(DATE_SUB(CURDATE(), INTERVAL 12 DAY), ' 16:00:00')),
-    (11, 6,  11, 'CD-QX-011', '母联隔离开关传动杆锈蚀', '传动连杆锈蚀较重，操作阻力大',                          'MAJOR',  CONCAT(DATE_SUB(CURDATE(), INTERVAL 15 DAY), ' 10:15:00'), '张伟', DATE_SUB(CURDATE(), INTERVAL 9 DAY), '郑楠', 'ACCEPTED', CONCAT(DATE_SUB(CURDATE(), INTERVAL 10 DAY), ' 11:20:00')),
-    (12, 12, NULL,'BL-QX-012', '电缆终端有放电痕迹',    '35kV出线电缆终端伞裙出现爬电痕迹',                      'URGENT', CONCAT(DATE_SUB(CURDATE(), INTERVAL 6 DAY), ' 21:05:00'), '郑楠', DATE_SUB(CURDATE(), INTERVAL 4 DAY), '吴斌', 'PROCESSING', NULL);
+-- 6. 缺陷 12 条（含超期未消缺；待验收/驳回返工均未闭环，仍阻断工作票终结）
+INSERT INTO `defect`
+(`id`, `bay_id`, `equipment_id`, `defect_no`, `title`, `description`, `level`, `found_time`, `reporter`, `due_date`, `owner`, `status`,
+ `process_result`, `processed_by`, `processed_time`, `rework_count`, `accepted_by`, `closed_time`) VALUES
+    (1,  1,  3,  'CD-QX-001', '1011隔离开关触头过热',   '红外测温 96.2℃，超规程允许值，需打磨触头并处理氧化层', 'URGENT', CONCAT(DATE_SUB(CURDATE(), INTERVAL 5 DAY), ' 23:40:00'), '马超', DATE_SUB(CURDATE(), INTERVAL 3 DAY), NULL,  'REGISTERED', NULL, NULL, NULL, 0, NULL, NULL),
+    (2,  1,  2,  'CD-QX-002', '101断路器SF6压力偏低',   '密度继电器指示 0.42MPa，接近报警值 0.40MPa',           'MAJOR',  CONCAT(DATE_SUB(CURDATE(), INTERVAL 12 DAY), ' 09:05:00'), '张伟', DATE_SUB(CURDATE(), INTERVAL 5 DAY), '李强', 'DISPATCHED', NULL, NULL, NULL, 0, NULL, NULL),
+    (3,  3,  9,  'CD-QX-003', '311电流互感器油位异常',  '巡视发现油位低于下限，疑似存在渗漏',                    'MAJOR',  CONCAT(DATE_SUB(CURDATE(), INTERVAL 8 DAY), ' 10:05:00'), '李雪', DATE_SUB(CURDATE(), INTERVAL 1 DAY), '王芳', 'PROCESSING', NULL, NULL, NULL, 0, NULL, NULL),
+    (4,  5,  10, 'CD-QX-004', '电容器组外壳渗油',       '电容器外壳底部出现油迹，暂不影响运行',                  'MINOR',  CONCAT(DATE_SUB(CURDATE(), INTERVAL 4 DAY), ' 14:35:00'), '张伟', DATE_ADD(CURDATE(), INTERVAL 4 DAY), NULL,  'REGISTERED', NULL, NULL, NULL, 0, NULL, NULL),
+    (5,  2,  6,  'CD-QX-005', '2号主变冷却器风扇异响',  '第 3 组冷却器风扇轴承异响，运行中噪声明显',            'URGENT', CONCAT(DATE_SUB(CURDATE(), INTERVAL 9 DAY), ' 20:10:00'), '赵刚', DATE_SUB(CURDATE(), INTERVAL 7 DAY), '赵刚', 'PROCESSING', NULL, NULL, NULL, 0, NULL, NULL),
+    (6,  7,  12, 'HX-QX-006', '主变油面温度计偏高',     '上层油温最高 78℃，冷却系统未见异常，需校核表计',       'MAJOR',  CONCAT(CURDATE(), ' 09:40:00'),                          '孙磊', DATE_ADD(CURDATE(), INTERVAL 2 DAY), '孙磊', 'DISPATCHED', NULL, NULL, NULL, 0, NULL, NULL),
+    (7,  8,  13, 'HX-QX-007', '311断路器机构箱受潮',    '机构箱内部凝露，已放干燥剂',                           'MINOR',  CONCAT(DATE_SUB(CURDATE(), INTERVAL 2 DAY), ' 11:10:00'), '周涛', DATE_ADD(CURDATE(), INTERVAL 15 DAY), NULL, 'REGISTERED', NULL, NULL, NULL, 0, NULL, NULL),
+    (8,  9,  14, 'HX-QX-008', '321断路器分合闸指示失灵','指示灯不亮，机械位置指示滞后',                          'URGENT', CONCAT(DATE_SUB(CURDATE(), INTERVAL 3 DAY), ' 15:20:00'), '周涛', DATE_SUB(CURDATE(), INTERVAL 2 DAY), '周涛', 'DISPATCHED', NULL, NULL, NULL, 0, NULL, NULL),
+    (9,  11, NULL,'BL-QX-009', '主变本体法兰渗漏油',    '本体法兰处有油迹，暂未形成滴油',                        'MAJOR',  CONCAT(DATE_SUB(CURDATE(), INTERVAL 1 DAY), ' 16:45:00'), '吴斌', DATE_ADD(CURDATE(), INTERVAL 6 DAY), NULL,  'REGISTERED', NULL, NULL, NULL, 0, NULL, NULL),
+    (10, 4,  NULL,'CD-QX-010', '35kV避雷器计数器破损',  '外绝缘完好，计数器玻璃破碎',                            'MINOR',  CONCAT(DATE_SUB(CURDATE(), INTERVAL 20 DAY), ' 09:30:00'), '李雪', DATE_SUB(CURDATE(), INTERVAL 6 DAY), '郑楠', 'ACCEPTED', '更换计数器并复测绝缘合格', '郑楠', CONCAT(DATE_SUB(CURDATE(), INTERVAL 12 DAY), ' 15:10:00'), 0, '陈国栋', CONCAT(DATE_SUB(CURDATE(), INTERVAL 12 DAY), ' 16:00:00')),
+    (11, 6,  11, 'CD-QX-011', '母联隔离开关传动杆锈蚀', '传动连杆锈蚀较重，操作阻力大',                          'MAJOR',  CONCAT(DATE_SUB(CURDATE(), INTERVAL 15 DAY), ' 10:15:00'), '张伟', DATE_SUB(CURDATE(), INTERVAL 9 DAY), '郑楠', 'ACCEPTED', '连杆除锈喷涂润滑脂，分合试验三次正常', '郑楠', CONCAT(DATE_SUB(CURDATE(), INTERVAL 10 DAY), ' 10:05:00'), 1, '黄志强', CONCAT(DATE_SUB(CURDATE(), INTERVAL 10 DAY), ' 11:20:00')),
+    (12, 12, NULL,'BL-QX-012', '电缆终端有放电痕迹',    '35kV出线电缆终端伞裙出现爬电痕迹',                      'URGENT', CONCAT(DATE_SUB(CURDATE(), INTERVAL 6 DAY), ' 21:05:00'), '郑楠', DATE_SUB(CURDATE(), INTERVAL 4 DAY), '吴斌', 'PENDING_ACCEPTANCE', '已清洁终端伞裙、重包应力锥并做耐压试验，申请验收', '吴斌', CONCAT(DATE_SUB(CURDATE(), INTERVAL 1 DAY), ' 17:30:00'), 0, NULL, NULL);
+
+-- 6.2 缺陷处理/验收留痕（只增不改；CD-QX-011 首轮被驳回返工、第二轮通过；BL-QX-012 待验收）
+INSERT INTO `defect_acceptance`
+(`id`, `defect_id`, `round_no`, `processed_by`, `process_result`, `submitted_time`, `accepted_by`, `result`, `accept_opinion`, `accepted_time`) VALUES
+(1, 10, 1, '郑楠', '更换计数器并复测绝缘合格', CONCAT(DATE_SUB(CURDATE(), INTERVAL 12 DAY), ' 15:10:00'),
+   '陈国栋', 'PASS', '绝缘电阻、计数器动作均正常', CONCAT(DATE_SUB(CURDATE(), INTERVAL 12 DAY), ' 16:00:00')),
+(2, 11, 1, '郑楠', '传动杆已除锈并涂润滑油', CONCAT(DATE_SUB(CURDATE(), INTERVAL 11 DAY), ' 10:40:00'),
+   '黄志强', 'REJECTED', '现场分合试验仍有卡涩，锈蚀处理不彻底，退回重新处理', CONCAT(DATE_SUB(CURDATE(), INTERVAL 11 DAY), ' 11:30:00')),
+(3, 11, 2, '郑楠', '连杆除锈喷涂润滑脂，分合试验三次正常', CONCAT(DATE_SUB(CURDATE(), INTERVAL 10 DAY), ' 10:05:00'),
+   '黄志强', 'PASS', '复测合格，同意闭环', CONCAT(DATE_SUB(CURDATE(), INTERVAL 10 DAY), ' 11:20:00')),
+(4, 12, 1, '吴斌', '已清洁终端伞裙、重包应力锥并做耐压试验，申请验收', CONCAT(DATE_SUB(CURDATE(), INTERVAL 1 DAY), ' 17:30:00'),
+   NULL, NULL, NULL, NULL);
 
 -- 7. 工作票 8 张（含完整三审信息）
 INSERT INTO `work_ticket`

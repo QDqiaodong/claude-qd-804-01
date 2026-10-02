@@ -11,6 +11,8 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
+import org.springframework.web.servlet.resource.NoResourceFoundException;
+
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
@@ -48,6 +50,15 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(DataIntegrityViolationException.class)
     public ResponseEntity<ApiResponse<Void>> handleIntegrity(DataIntegrityViolationException e) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ApiResponse.fail("存在唯一性约束冲突，请检查编号、手机号是否重复"));
+    }
+
+    /**
+     * 接口/静态资源不存在：404（如已下线的旧版 /advance 接口）
+     */
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<ApiResponse<Void>> handleNoResource(NoResourceFoundException e) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(ApiResponse.fail("接口不存在或已下线，请刷新页面后使用最新入口"));
     }
 
     /**

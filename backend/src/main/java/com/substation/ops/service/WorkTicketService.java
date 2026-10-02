@@ -325,15 +325,18 @@ public class WorkTicketService {
                     throw new BizException(buildTerminateBlockMessage(gate));
                 }
 
-                List<Defect> overdue = defectRepository.findByBayIdOrderByDueDateAsc(ticket.getBayId()).stream()
-                        .filter(d -> !Defect.STATUS_ACCEPTED.equals(d.getStatus()))
-                        .filter(d -> d.getDueDate() != null && LocalDate.now().isAfter(d.getDueDate()))
-                        .toList();
+                // ★★ 终结闸门（缺陷侧）：超期未闭环缺陷阻断终结。
+                // 只有验收通过（ACCEPTED）才算闭环；待验收、驳回返工都仍是未闭环，
+                // 与超期排行 JPQL（DefectRepository#rankOverdue）同一口径，
+                // 处理人「报完工进待验收」不会偷偷放开关联工作票终结。
+                List<Defect> overdue = defectRepository.findOpenOverdueByBay(
+                        ticket.getBayId(), Defect.STATUS_ACCEPTED, LocalDate.now());
                 if (!overdue.isEmpty()) {
                     Defect worst = overdue.get(0);
-                    throw new BizException("该间隔尚有 " + overdue.size() + " 条超期未消缺（如 " + worst.getDefectNo()
-                            + " 已超期 " + java.time.temporal.ChronoUnit.DAYS.between(worst.getDueDate(), LocalDate.now())
-                            + " 天），消缺闭环前不允许终结工作票");
+                    throw new BizException("该间隔尚有 " + overdue.size() + " 条超期未闭环缺陷（如 " + worst.getDefectNo()
+                            + "，当前环节「" + Labels.defectStatus(worst.getStatus()) + "」，已超期 "
+                            + java.time.temporal.ChronoUnit.DAYS.between(worst.getDueDate(), LocalDate.now())
+                            + " 天），须经独立验收通过闭环后才允许终结工作票");
                 }
                 ticket.setTerminator(person);
                 ticket.setTerminateTime(LocalDateTime.now());

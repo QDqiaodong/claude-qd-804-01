@@ -15,6 +15,7 @@ public final class Labels {
     private static final Map<String, String> BAY_TYPE = new HashMap<>();
     private static final Map<String, String> DEFECT_LEVEL = new HashMap<>();
     private static final Map<String, String> DEFECT_STATUS = new HashMap<>();
+    private static final Map<String, String> DEFECT_ACCEPT_RESULT = new HashMap<>();
     private static final Map<String, String> WORK_STATUS = new HashMap<>();
     private static final Map<String, String> OP_STATUS = new HashMap<>();
     private static final Map<String, String> STEP_STATUS = new HashMap<>();
@@ -45,7 +46,11 @@ public final class Labels {
         DEFECT_STATUS.put("REGISTERED", "已登记");
         DEFECT_STATUS.put("DISPATCHED", "已派工");
         DEFECT_STATUS.put("PROCESSING", "处理中");
+        DEFECT_STATUS.put("PENDING_ACCEPTANCE", "待验收");
         DEFECT_STATUS.put("ACCEPTED", "已验收");
+
+        DEFECT_ACCEPT_RESULT.put("PASS", "验收通过");
+        DEFECT_ACCEPT_RESULT.put("REJECTED", "驳回返工");
 
         WORK_STATUS.put("DRAFT", "待签发");
         WORK_STATUS.put("ISSUED", "已签发");
@@ -123,6 +128,10 @@ public final class Labels {
 
     public static String defectStatus(String status) {
         return of(DEFECT_STATUS, status);
+    }
+
+    public static String defectAcceptResult(String result) {
+        return of(DEFECT_ACCEPT_RESULT, result);
     }
 
     public static String workStatus(String status) {

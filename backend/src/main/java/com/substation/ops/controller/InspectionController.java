@@ -14,7 +14,10 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.substation.ops.common.ApiResponse;
 import com.substation.ops.domain.DefectSummary;
+import com.substation.ops.dto.DefectAcceptRequest;
 import com.substation.ops.dto.DefectCreateRequest;
+import com.substation.ops.dto.DefectDispatchRequest;
+import com.substation.ops.dto.DefectSubmitResultRequest;
 import com.substation.ops.dto.DefectVO;
 import com.substation.ops.dto.OverdueDefectRow;
 import com.substation.ops.service.InspectionService;
@@ -23,6 +26,10 @@ import jakarta.validation.Valid;
 
 /**
  * 模块三：巡检记录与缺陷闭环。
+ *
+ * 闭环链路：登记 → 派工（指定处理人）→ 开工处理 → 处理人提交结果【待验收】
+ *          → 另一名值班员独立验收：通过闭环 / 驳回退回处理中返工。
+ * 处理与验收是两个独立接口、两类操作人，不能再一步从「处理中」直达「已验收」。
  */
 @RestController
 @RequestMapping("/api/defects")
@@ -51,7 +58,7 @@ public class InspectionController {
         return ApiResponse.success(inspectionService.defects(bayId));
     }
 
-    /** 【手写 JPQL】缺陷超期排行 */
+    /** 【手写 JPQL】缺陷超期排行（待验收、驳回返工仍在榜） */
     @GetMapping("/overdue-ranking")
     public ApiResponse<List<OverdueDefectRow>> overdueRanking() {
         return ApiResponse.success("缺陷超期排行（按超期天数降序）", inspectionService.overdueRanking());
@@ -70,10 +77,37 @@ public class InspectionController {
         return ApiResponse.success("缺陷已登记", inspectionService.register(request));
     }
 
-    /** 消缺推进：登记 → 派工 → 处理 → 验收 */
-    @PostMapping("/{id}/advance")
-    public ApiResponse<DefectVO> advance(@PathVariable Long id,
-                                         @RequestParam(required = false) String owner) {
-        return ApiResponse.success("消缺环节已推进", inspectionService.advance(id, owner));
+    /** 环节一：派工，指定消缺负责人（处理人） */
+    @PostMapping("/{id}/dispatch")
+    public ApiResponse<DefectVO> dispatch(@PathVariable Long id,
+                                          @Valid @RequestBody DefectDispatchRequest request) {
+        return ApiResponse.success("已派工", inspectionService.dispatch(id, request));
+    }
+
+    /** 环节二：已派工 → 处理中 */
+    @PostMapping("/{id}/start-process")
+    public ApiResponse<DefectVO> startProcess(@PathVariable Long id) {
+        return ApiResponse.success("已开工处理", inspectionService.startProcess(id));
+    }
+
+    /**
+     * 环节三（处理人）：提交处理结果报完工，缺陷进入「待验收」。
+     * 不闭环、不解除超期阻断，等待另一名值班员验收。
+     */
+    @PostMapping("/{id}/submit-result")
+    public ApiResponse<DefectVO> submitResult(@PathVariable Long id,
+                                              @Valid @RequestBody DefectSubmitResultRequest request) {
+        return ApiResponse.success("处理结果已提交，进入待验收", inspectionService.submitResult(id, request));
+    }
+
+    /**
+     * 环节四（验收人，必须不同于处理人）：填写验收结论。
+     * pass=true 验收通过闭环；pass=false 驳回，退回处理中返工并保留全部处理/验收痕迹。
+     */
+    @PostMapping("/{id}/accept")
+    public ApiResponse<DefectVO> accept(@PathVariable Long id,
+                                        @Valid @RequestBody DefectAcceptRequest request) {
+        String msg = request.isPass() ? "验收通过，缺陷闭环" : "已驳回，缺陷退回处理中返工";
+        return ApiResponse.success(msg, inspectionService.accept(id, request));
     }
 }

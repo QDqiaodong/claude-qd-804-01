@@ -45,7 +45,16 @@ export const defectSummary = (substationId, month) =>
 
 export const registerDefect = (payload) => http.post('/defects', payload)
 
-export const advanceDefect = (id, owner) => http.post(`/defects/${id}/advance`, null, { params: { owner } })
+// 消缺闭环（处理与验收分离）：派工 → 开工 → 处理人提交结果（待验收）→ 另一值班员验收
+export const dispatchDefect = (id, owner) => http.post(`/defects/${id}/dispatch`, { owner })
+
+export const startProcessDefect = (id) => http.post(`/defects/${id}/start-process`)
+
+export const submitDefectResult = (id, processor, processResult) =>
+  http.post(`/defects/${id}/submit-result`, { processor, processResult })
+
+export const acceptDefect = (id, acceptor, pass, opinion) =>
+  http.post(`/defects/${id}/accept`, { acceptor, pass, opinion })
 
 // 工作票（三审）
 export const workTickets = (date) => http.get('/work-tickets', { params: { date } })
