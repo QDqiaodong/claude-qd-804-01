@@ -45,7 +45,14 @@ export const defectSummary = (substationId, month) =>
 
 export const registerDefect = (payload) => http.post('/defects', payload)
 
+// 派工推进：登记 → 派工 → 处理（处理中以后不再使用）
 export const advanceDefect = (id, owner) => http.post(`/defects/${id}/advance`, null, { params: { owner } })
+
+// 处理人报完工：处理中（含驳回返工）→ 待验收
+export const submitDefectResult = (id, payload) => http.post(`/defects/${id}/submit-result`, payload)
+
+// 独立验收：另一值班员填结论，PASS 通过闭环 / REJECT 驳回返工
+export const acceptDefect = (id, payload) => http.post(`/defects/${id}/accept`, payload)
 
 // 工作票（三审）
 export const workTickets = (date) => http.get('/work-tickets', { params: { date } })

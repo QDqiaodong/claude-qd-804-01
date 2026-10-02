@@ -14,7 +14,9 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.substation.ops.common.ApiResponse;
 import com.substation.ops.domain.DefectSummary;
+import com.substation.ops.dto.DefectAcceptRequest;
 import com.substation.ops.dto.DefectCreateRequest;
+import com.substation.ops.dto.DefectProcessRequest;
 import com.substation.ops.dto.DefectVO;
 import com.substation.ops.dto.OverdueDefectRow;
 import com.substation.ops.service.InspectionService;
@@ -70,10 +72,27 @@ public class InspectionController {
         return ApiResponse.success("缺陷已登记", inspectionService.register(request));
     }
 
-    /** 消缺推进：登记 → 派工 → 处理 → 验收 */
+    /** 派工推进：登记 → 派工 → 处理（处理中以后不再走此接口） */
     @PostMapping("/{id}/advance")
     public ApiResponse<DefectVO> advance(@PathVariable Long id,
                                          @RequestParam(required = false) String owner) {
         return ApiResponse.success("消缺环节已推进", inspectionService.advance(id, owner));
+    }
+
+    /** 处理人报完工：处理中（含驳回返工）→ 待验收，只提交结果、不闭环 */
+    @PostMapping("/{id}/submit-result")
+    public ApiResponse<DefectVO> submitResult(@PathVariable Long id,
+                                              @Valid @RequestBody DefectProcessRequest request) {
+        return ApiResponse.success("处理结果已提交，缺陷进入待验收，请由另一名值班员验收",
+                inspectionService.submitResult(id, request));
+    }
+
+    /** 独立验收：与处理人不同的值班员填结论；通过闭环，驳回退回处理中并保留本次处理/验收/原因 */
+    @PostMapping("/{id}/accept")
+    public ApiResponse<DefectVO> accept(@PathVariable Long id,
+                                        @Valid @RequestBody DefectAcceptRequest request) {
+        boolean pass = "PASS".equals(request.getVerdict());
+        return ApiResponse.success(pass ? "验收通过，缺陷已闭环" : "已驳回返工，缺陷退回处理中（本轮记录已保留）",
+                inspectionService.accept(id, request));
     }
 }

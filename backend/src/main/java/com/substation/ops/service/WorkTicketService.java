@@ -331,9 +331,10 @@ public class WorkTicketService {
                         .toList();
                 if (!overdue.isEmpty()) {
                     Defect worst = overdue.get(0);
-                    throw new BizException("该间隔尚有 " + overdue.size() + " 条超期未消缺（如 " + worst.getDefectNo()
-                            + " 已超期 " + java.time.temporal.ChronoUnit.DAYS.between(worst.getDueDate(), LocalDate.now())
-                            + " 天），消缺闭环前不允许终结工作票");
+                    throw new BizException("该间隔尚有 " + overdue.size() + " 条超期未完成独立验收（如 " + worst.getDefectNo()
+                            + " 当前为「" + Labels.defectStatus(worst.getStatus())
+                            + "」，已超期 " + java.time.temporal.ChronoUnit.DAYS.between(worst.getDueDate(), LocalDate.now())
+                            + " 天）；待验收也不算闭环，必须验收通过后才允许终结工作票");
                 }
                 ticket.setTerminator(person);
                 ticket.setTerminateTime(LocalDateTime.now());
